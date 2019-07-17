@@ -1,0 +1,51 @@
+/*
+This Jenkinsfile shows how to securely retrieve your configurations
+hosted on ConfigTree.co
+
+Pre-execution steps:
+- Create credentials in Jenkins of kind "Username with password" (in this example: ConfigTreeCredentials)
+
+*/
+node {
+    // Cleanup the workspace
+    step([$class: 'WsCleanup'])
+
+    // Define a branch to env relation (this is ideally defined in a master Jenkinsfile)
+    def branch_to_env = [:]
+    branch_to_env["master"] = "production"
+    branch_to_env["development"] = "development"
+
+    // checkout current branch for info
+    checkout scm
+
+    // Set the application name (Ideally using the Git Project name would make this easier)
+    env.CURRENT_APPNAME = "JenkinsTestApp"
+
+    // Set the Organization name
+    env.ORG_NAME = "TestOrg1"
+
+    // set current ENV using
+    env.CURRENT_ENV = branch_to_env["${env.BRANCH_NAME}"]
+
+
+    // Use the credentials binding plugin (https://jenkins.io/doc/pipeline/steps/credentials-binding/)
+    withCredentials([usernameColonPassword(credentialsId: 'ConfigTreeCredentials', variable: 'USERPASS')]) {
+        // Get the login access token
+        sh '''
+            set +x
+            curl -u "$USERPASS" https://api.configtree.co/v1/login > login.json
+        '''
+
+        // Read the json to get the access token
+        def props = readJSON file: 'login.json'
+        env.ACCESS_TOKEN = props['access']
+
+        // Retrieve the configuration
+        sh '''
+            set +x
+            curl --request GET \
+            --url https://api.configtree.co/v1/${env.ORG_NAME}/versions/?applicationName=${env.CURRENT_APPNAME}&environmentName=${env.CURRENT_ENV} \
+            --header "authorization: Bearer ${env.ACCESS_TOKEN}" > config.json
+        '''
+    }
+}
